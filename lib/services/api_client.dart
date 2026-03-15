@@ -180,6 +180,69 @@ class ApiClient {
   Future<void> markNotificationRead(String id) async {
     await _request('POST', '/notifications/$id/read');
   }
+
+  // --- Onboarding ---
+
+  Future<OnboardingProgress> getOnboardingProgress(String orgId) async {
+    final data = await _request('GET', '/onboarding/progress', queryParams: {'org_id': orgId});
+    return OnboardingProgress.fromJson(data);
+  }
+
+  Future<OnboardingProgress> completeOnboardingStep(String orgId, String step) async {
+    final data = await _request('POST', '/onboarding/progress/complete-step', body: {
+      'org_id': orgId,
+      'step': step,
+    });
+    return OnboardingProgress.fromJson(data);
+  }
+
+  Future<OnboardingProgress> dismissOnboarding(String orgId) async {
+    final data = await _request('POST', '/onboarding/progress/dismiss', body: {'org_id': orgId});
+    return OnboardingProgress.fromJson(data);
+  }
+
+  // --- Repurpose ---
+
+  Future<RepurposeResult> repurposeContent(String contentId, List<String> targetPlatforms) async {
+    final data = await _request('POST', '/content-items/$contentId/repurpose', body: {
+      'target_platforms': targetPlatforms,
+    });
+    return RepurposeResult.fromJson(data);
+  }
+
+  // --- Reports ---
+
+  String getReportUrl({
+    required String dateFrom,
+    required String dateTo,
+    String? ccId,
+    String? orgId,
+    String reportType = 'metrics_overview',
+  }) {
+    final params = <String, String>{
+      'date_from': dateFrom,
+      'date_to': dateTo,
+      'report_type': reportType,
+    };
+    if (ccId != null) params['cc_id'] = ccId;
+    if (orgId != null) params['org_id'] = orgId;
+    final query = params.entries.map((e) => '${e.key}=${e.value}').join('&');
+    return '$_baseUrl/reports/generate?$query';
+  }
+
+  // --- Editorial Planning ---
+
+  Future<List<EditorialPlan>> listEditorialPlans(String orgId, {String? ccId}) async {
+    final params = <String, String>{'org_id': orgId};
+    if (ccId != null) params['cc_id'] = ccId;
+    final data = await _request('GET', '/editorial/plans', queryParams: params);
+    return (data as List).map((e) => EditorialPlan.fromJson(e)).toList();
+  }
+
+  Future<EditorialPlan> getEditorialPlan(String planId) async {
+    final data = await _request('GET', '/editorial/plans/$planId');
+    return EditorialPlan.fromJson(data);
+  }
 }
 
 class ApiException implements Exception {

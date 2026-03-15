@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -18,6 +19,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   MetricsOverview? _metrics;
   int _pendingReviewCount = 0;
   String? _error;
+  OnboardingProgress? _onboarding;
+  List<EditorialPlan> _editorialPlans = [];
 
   final _numFmt = NumberFormat('#,##0', 'pt_BR');
 
@@ -43,6 +46,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     try {
+      final orgId = auth.selectedOrg?.id;
       final results = await Future.wait([
         api.listContent(cc.id, status: 'review', limit: 1),
         api.getMetricsOverview(cc.id),
@@ -51,9 +55,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final paginated = results[0] as PaginatedContent;
       final metrics = results[1] as MetricsOverview;
 
+      // Load onboarding + editorial (non-blocking)
+      OnboardingProgress? onboarding;
+      List<EditorialPlan> plans = [];
+      if (orgId != null) {
+        try {
+          onboarding = await api.getOnboardingProgress(orgId);
+        } catch (_) {}
+        try {
+          plans = await api.listEditorialPlans(orgId, ccId: cc.id);
+        } catch (_) {}
+      }
+
       setState(() {
         _pendingReviewCount = paginated.total;
         _metrics = metrics;
+        _onboarding = onboarding;
+        _editorialPlans = plans;
         _loading = false;
       });
     } catch (e) {
@@ -133,6 +151,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         _buildGreeting(orgName, ccName),
         const SizedBox(height: 12),
+        if (_onboarding != null && !_onboarding!.isDismissed && !_onboarding!.isComplete) ...[
+          _buildOnboardingCard(),
+          const SizedBox(height: 12),
+        ],
         if (_pendingReviewCount > 0) ...[
           _buildAlertBanner(),
           const SizedBox(height: 12),
@@ -140,6 +162,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _buildMetricGrid(metrics),
         const SizedBox(height: 16),
         if (metrics != null) _buildEngagementCard(metrics),
+        if (_editorialPlans.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _buildEditorialCard(),
+        ],
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () => context.push('/relatorios'),
+            icon: const Icon(Icons.summarize_outlined, size: 18),
+            label: const Text('Gerar Relatório'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: kPrimaryColor,
+              side: const BorderSide(color: kPrimaryColor),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -362,6 +401,180 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  // --- Onboarding checklist card ---
+
+  static const _stepLabels = {
+    'profile_setup': 'Configurar perfil',
+    'first_influencer': 'Criar influenciador',
+    'brand_kit': 'Configurar brand kit',
+    'first_content': 'Criar primeiro conteúdo',
+    'first_publish': 'Publicar conteúdo',
+    'connect_social': 'Conectar rede social',
+  };
+
+  Widget _buildOnboardingCard() {
+    final ob = _onboarding!;
+    final completed = ob.stepsCompleted.length;
+    final total = ob.stepsTotal.length;
+    final progress = total > 0 ? completed / total : 0.0;
+
+    return Card(
+      color: kCardColor,
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.rocket_launch_outlined, color: kPrimaryColor, size: 20),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Primeiros Passos',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: kTextColor),
+                  ),
+                ),
+                Text(
+                  '$completed/$total',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: kPrimaryColor),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: progress,
+                backgroundColor: kBorderColor,
+                color: kPrimaryColor,
+                minHeight: 6,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...ob.stepsTotal.map((step) {
+              final done = ob.stepsCompleted.contains(step);
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  children: [
+                    Icon(
+                      done ? Icons.check_circle : Icons.radio_button_unchecked,
+                      size: 18,
+                      color: done ? kSuccessColor : kTextSecondary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _stepLabels[step] ?? step,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: done ? kTextSecondary : kTextColor,
+                        decoration: done ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- Editorial planning card ---
+
+  Widget _buildEditorialCard() {
+    final plan = _editorialPlans.first;
+    final pendingSlots = plan.slots.where((s) => s.contentItemId == null).toList();
+
+    return Card(
+      color: kCardColor,
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.auto_awesome, color: kPrimaryColor, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Plano Editorial (${plan.periodType == 'week' ? 'Semanal' : 'Mensal'})',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: kTextColor),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${plan.periodStart} a ${plan.periodEnd} — ${plan.slots.length} slots',
+              style: const TextStyle(fontSize: 12, color: kTextSecondary),
+            ),
+            if (plan.aiRationale != null && plan.aiRationale!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                plan.aiRationale!,
+                style: const TextStyle(fontSize: 12, color: kTextSecondary, fontStyle: FontStyle.italic),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+            if (pendingSlots.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Próximos slots:',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextSecondary),
+              ),
+              const SizedBox(height: 6),
+              ...pendingSlots.take(4).map((slot) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: kPrimaryColor.withValues(alpha: 0.5),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${slot.date} — ${slot.theme}',
+                            style: const TextStyle(fontSize: 12, color: kTextColor),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Text(
+                          slot.platform,
+                          style: const TextStyle(fontSize: 11, color: kTextSecondary),
+                        ),
+                      ],
+                    ),
+                  )),
+              if (pendingSlots.length > 4)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    '+${pendingSlots.length - 4} mais',
+                    style: const TextStyle(fontSize: 11, color: kTextSecondary),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

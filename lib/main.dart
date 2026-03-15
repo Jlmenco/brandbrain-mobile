@@ -11,6 +11,7 @@ import 'screens/content_detail_screen.dart';
 import 'screens/create_content_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/reports_screen.dart';
 
 void main() {
   runApp(
@@ -74,6 +75,11 @@ final _router = GoRouter(
       path: '/novo-conteudo',
       parentNavigatorKey: _rootNavigatorKey,
       builder: (context, state) => const CreateContentScreen(),
+    ),
+    GoRoute(
+      path: '/relatorios',
+      parentNavigatorKey: _rootNavigatorKey,
+      builder: (context, state) => const ReportsScreen(),
     ),
   ],
 );

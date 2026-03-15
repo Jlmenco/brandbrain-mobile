@@ -165,6 +165,92 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
     }
   }
 
+  Future<void> _showRepurposeDialog(ContentItem item) async {
+    const allPlatforms = ['linkedin', 'instagram', 'facebook', 'tiktok', 'youtube'];
+    final available = allPlatforms
+        .where((p) => p != item.providerTarget.toLowerCase())
+        .toList();
+    final selected = <String>{};
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Adaptar conteúdo'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Selecione as plataformas de destino:',
+                style: TextStyle(color: kTextSecondary, fontSize: 14),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: available.map((p) {
+                  final isSelected = selected.contains(p);
+                  return FilterChip(
+                    label: Text(_providerLabel(p)),
+                    selected: isSelected,
+                    selectedColor: kPrimaryColor.withValues(alpha: 0.2),
+                    checkmarkColor: kPrimaryColor,
+                    onSelected: (val) {
+                      setDialogState(() {
+                        if (val) {
+                          selected.add(p);
+                        } else {
+                          selected.remove(p);
+                        }
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => Navigator.of(ctx).pop(true),
+              child: const Text('Adaptar'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true || selected.isEmpty || !mounted) return;
+    setState(() => _actionLoading = true);
+    try {
+      final api = context.read<AuthProvider>().api;
+      await api.repurposeContent(widget.contentId, selected.toList());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${selected.length} ${selected.length == 1 ? 'versão criada' : 'versões criadas'} como rascunho.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: kErrorColor),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _actionLoading = false);
+    }
+  }
+
   String _formatDate(String? iso) {
     if (iso == null || iso.isEmpty) return '—';
     try {
@@ -343,6 +429,23 @@ class _ContentDetailScreenState extends State<ContentDetailScreen> {
                 child: CircularProgressIndicator(color: kPrimaryColor, strokeWidth: 2),
               ),
             ),
+
+          // Repurpose button (available for all statuses)
+          if (!_actionLoading) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _showRepurposeDialog(item),
+                icon: const Icon(Icons.repeat, size: 18),
+                label: const Text('Adaptar para outra plataforma'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: kPrimaryColor,
+                  side: const BorderSide(color: kPrimaryColor),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
